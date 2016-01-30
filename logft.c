@@ -11,25 +11,14 @@ adaptation of dft.c using log channels separated by
 /*  (from stdin) and writes binary float coefficients (mag or db) to stdout.
 /*       9/90 include option so in pitch tracking doesn't report the channels "between         freqs corresp to musical notes
 
-/* usage: logft -hHANNING -PPRINT -dDB -bDEBUG -rRES -FFRMSZ -pNCHNLS -fMINHZ
-              -iHANFILE -jHANWRITTEN -lLINE -oNOOUT -aHALFSEMI -vVARRES
-              -RFLTRESP -Ddropmidchnls
-      -xXCORRI {-nNHARM -cCOMBPRINT-qBACKZERO -gGRAPH -zNRMXCORR -tXCORRPRNT
-                -wLOGFTVALIN -kPIKPEAK {-mGRPHPEAK -ePRNTPIK -yMIDIFILE }}
-       <infile >outfile
+/* usage: logft [options] <infile >outfile
 /*   -hHANNING(1) Use Hanning or hamming window(1) or (0) rectangular.
 /*   -HHAMMING(0) For Hamming instead of Hanning
-/*   -PPRINT(0)   Print values of logft to stderr.
 /*   -dDB (0)     Calculate logft in decibels.
 /*   -rRES(17)    Resolution f/deltaf.
 /*   -FFRMSZ(500) Number of samples analyzed per frame.
 /*   -pNCHNLS(156)Number of frequencies for which logft calculated per frame
 /*   -fMINHZ(174.6)Lowest frequency value = 7.05 = F3 = midi 53
-/*   -iHANFILE    Print array of sin & cos times hanning values to "hanfile".
-/*   -jHANWRITTEN(0) Hanfile already written.
-/*   -lLINE(0)       Just print the first frame.
-/*   -oNOOUT(0)      Don't print an output file; use for writing number to a
-                       file with >& .
 /*   -aHALFSEMI(1) Calculate with 2 frequency values per semitone.
 /*   -vVARRES(1)   Makes resolution 4 time original for midinotes > 90 (G6).
                   7/19/88 change so makes resolutin VARRES times orig w deflt 2
@@ -58,20 +47,18 @@ adaptation of dft.c using log channels separated by
 #define SRATE  32000.
 #define TWOPI  6.2831854
 #define PI  3.1415927
-#define NHARM 6
 #define PMODE 0644
 #define HANMAX 700000 /*ems can't handle 700000 /* works with 500000 */
 #define MINLAM 4                       /* at 10k 6  */
 #define MAXLAM 250  /* for c3 ; was 195                      /* at 10k 75 */
 
-struct  frmhdr hdr;
-short   dumphdr[1024];                  /* dump header */
-short   sampbuf[WINDMAX];               /* buffer for input samples        */
-int miditable[MAXLAM + 1];
-float   outbuf[MAXCHNLS], *outbufp;     /* frame of out coefs in mag or db */
-char    midifile[20];
-char    hanfile[20] ;
-float   srate = SRATE, midtuncor=1.;
+static struct  frmhdr hdr;
+static short   dumphdr[1024];                  /* dump header */
+static short   sampbuf[WINDMAX];               /* buffer for input samples        */
+static int miditable[MAXLAM + 1];
+static float   outbuf[MAXCHNLS];     /* frame of out coefs in mag or db */
+static float   srate = SRATE, midtuncor=1.;
+
 main(argc,argv)
  int argc;
  char **argv;
@@ -80,13 +67,12 @@ main(argc,argv)
         double  theta, a, b, c, db, one06, one03;
         double  onedws, twopidws, RES2pidws, alpha,phase;
         int     frmsz = FRMSZ, windbytes, framebytes, nchnls=NCHNLS;
-        int     hanning = 1, dbout = 0, print = 0,frmcnt = 0;
+        int     hanning = 1, dbout = 0, frmcnt = 0;
         int     windsiz[MAXCHNLS];
-        int     flag, windmaxi, sumwind=0, res = RES, nharm=NHARM;
+        int     flag, windmaxi, sumwind=0, res = RES;
         int     nw;
-        int     grphpeak=0, prntpik=0;
-        int     minmidi, minlam, line=0, noout=0, halfsemi=1;
-        int     midifreq, midi[MAXCHNLS], varres=2, flaghi = 1;
+        int     minmidi, minlam, halfsemi=1;
+        int     midi[MAXCHNLS], varres=2, flaghi = 1;
         int     maxreq=0;
         int     hamming = 1, windsiz_1 = 0, calcphase=0;
         int     writehdr=0, dropmidchnls=0;
@@ -107,8 +93,6 @@ main(argc,argv)
                                 break;
                         case 'd': sscanf(cp, "%d", &dbout);
                                 break;
-                        case 'P': sscanf(cp, "%d", &print);
-                                break;
                         case 'f': sscanf(cp, "%f", &minhz);
                                 break;
                         case 'F': sscanf(cp, "%d", &frmsz);
@@ -116,16 +100,6 @@ main(argc,argv)
                         case 'r': sscanf(cp, "%d", &res);/* resolution f/delf*/
                                 break;
                         case 'p':sscanf(cp,"%d",&nchnls);/*num points in ft*/
-                                break;
-                        case 'n': sscanf(cp, "%d", &nharm);
-                                break;
-                        case 'm': sscanf(cp, "%d", &grphpeak);
-                                break;
-                        case 'e': sscanf(cp, "%d", &prntpik);
-                                break;
-                        case 'l': sscanf(cp, "%d", &line);
-                                break;
-                        case 'o': sscanf(cp, "%d", &noout);
                                 break;
                         case 'a': sscanf(cp, "%d", &halfsemi);
                                 break;
@@ -260,23 +234,12 @@ frame:
 	 	outbuf[k] = c;       /* stor as magnitude */
 	      else outbuf[k] = db = 20. * log10(c); /*       or db        */
 	   }
-	   if (print){
-	      midifreq = miditable[(int)(windsiz[k]/res)];
-	      if (!dbout)fprintf(stderr, /* print for mag coeff */
-			  "chnl %d midi=%d freq %.1f coef %.1f\n",
-			  k,midifreq, srate*(midi[k]>90?varres*res:res)/windsiz[k], c );
-	      else                   /* print for db coeff */
-		 fprintf(stderr,"chnl %d midi=%d freq %.1f db=%.1f\n",
-			 k, midifreq, srate*(midi[k]>90?varres*res:res)/windsiz[k], db );
-	   }
 	}                            /* end calc from table read in */
 
-       if (noout==0){/*if noout==1 don't print to output file; want numbers */
-              if((nw = write(1, outbuf, 4*nchnls)) < 0)/*print outbuf to file*/
-                fprintf(stderr, "nw = %d  ERROR\n", nw);
-       }
-       if(line==1)exit(0);  /* Stop if want just one frame */
-       if (nw < 4*nchnls && noout ==0){
+       if((nw = write(1, outbuf, 4*nchnls)) < 0)/*print outbuf to file*/
+          fprintf(stderr, "nw = %d  ERROR\n", nw);
+
+       if (nw < 4*nchnls){
             fprintf(stderr, "error writing from outbuf\n wrote %d bytes\
                 and should have written %d\n", nw, 4*nchnls);
        }
