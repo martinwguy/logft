@@ -115,7 +115,7 @@ main(argc,argv)
         int     nextsamp, grphpeak=0, prntpik=0, ofp, hanwritten=0, flag2,ifp;
         int     minmidi, minlam, line=0, noout=0, nrmxcorr=0, halfsemi=1;
         int     midifreq, midi[MAXCHNLS], varres=2, flaghi = 1, flagm = 0;
-        int     ofpm, backzero=1, nologftcalc=0, ifp2, fltresp=0, maxreq=0;
+        int     ofpm, backzero=1, ifp2, fltresp=0, maxreq=0;
         int     hamming = 1, windsiz_1 = 0,siz, calcphase=0, doubcomb=0;
         int     rlcmbg, writehdr=0, dropmidchnls=0;
         short   pitch;
@@ -185,9 +185,6 @@ main(argc,argv)
                                 break;
                         case 'q': sscanf(cp, "%d", &backzero);
                                 break;
-                        case 'w':  sscanf(cp, "%s", logftvalin);
-                                nologftcalc=1;
-                                break;
                         case 'W':  sscanf(cp, "%d", &windsiz_1);
                                 break;
                         case 'M': sscanf(cp, "%d", &maxreq);
@@ -213,11 +210,11 @@ main(argc,argv)
                 }
                 argc--; argv++;
         }
-        if(!nologftcalc){
-            hanfilrd = (double *)malloc(HANMAX*8);
-            if (hanfilrd == NULL)
-              die ("memory allocation failure");
-        }
+
+        hanfilrd = (double *)malloc(HANMAX*8);
+        if (hanfilrd == NULL)
+          die ("memory allocation failure");
+
         if(hamming) {
                  alpha=(double)25./(double)46.;
                  fprintf(stderr,"Using Hamming window\n");
@@ -252,18 +249,12 @@ main(argc,argv)
            if((nw = write(1, &hdr, sizeof hdr)) != sizeof hdr)
 	     die("Error writing file header");
         }
-        if(!nologftcalc){
-           if (hanwritten){
-              if((ifp = open("hanning",O_RDONLY)) < 0)
-                die("can't open hanning");
-              if((n=read(ifp, hanfilrd, 8*HANMAX))<0)
-                die("can't read hanning");
-              hanfilrdp = hanfilrd;
-           }
-        }
-        if (nologftcalc){
-           if((ifp2 = open(logftvalin,O_RDONLY)) < 0)
-             die("Can't open logftvalin");
+        if (hanwritten){
+           if((ifp = open("hanning",O_RDONLY)) < 0)
+             die("can't open hanning");
+           if((n=read(ifp, hanfilrd, 8*HANMAX))<0)
+             die("can't read hanning");
+           hanfilrdp = hanfilrd;
         }
         one06 = pow(2.,1./12.);
         one03 = pow(2.,1./24.); /* for stepping by 1/2 semitone */
@@ -272,10 +263,8 @@ main(argc,argv)
         windmax = (float)(res*srate)/minhz; /* res determines harmonic
                     number which is const=res; freq is varied with windsiz[k]
                     and equals  srate*res/windsiz[k] */
-        if(!nologftcalc){
-           if (n= read(0, dumphdr, 1024) != 1024)
-             die("something wrong with header dump\n");
-        }
+        if (n= read(0, dumphdr, 1024) != 1024)
+          die("something wrong with header dump\n");
         p = nharm;  l=1;
         while(p--){ /*calc spacing of harmonics hspac[l] in channels
                       for nharm harmonic components */
@@ -320,158 +309,143 @@ main(argc,argv)
            sumwind += windsiz[n];        /* total window space needed
                                          for sin tables = sum of all windows */
            ++n;
-         }
-        if(!nologftcalc){
-           if(2*sumwind > HANMAX)die("2*Sumwind is > HANMAX.");
-           windmaxi = (int)windmax;     /* no of samples to read in is the size
-                                           of the largest window (lowest freq*/
-           if(windmaxi > WINDMAX)die("Windmaxi larger than WINDMAX");
-           windbytes = windmaxi *2;     /*windmaxi is old variable windsiz in dft*/
-           framebytes = frmsz * 2;
-
-           if (!hanwritten){            /* Window (or rect) values  not
-                       previously written to file so must calculate them */
-                 fprintf(stderr,"logft: %s window, %s out, making tables ..\n",
-                     (hanning) ? "hanning":"rect", (dbout) ? "db":"magnitude");
-                 hanp = hanfilrd;
-                 for (k=0; k < nchnls; ++k){
-                     if(windsiz_1)twopidws = twopi/(windsiz[k] - 1);
-                     else twopidws = twopi/(windsiz[k]);
-                     if(varres && (midi[k]>90))
-                          RES2pidws = (float)varres* res* twopi/windsiz[k];
-                     else RES2pidws = res* twopi/windsiz[k];
-                     onedws = 1./windsiz[k];
-
-                     for (n=0; n < windsiz[k]; ++n){
-                        a=onedws*((!hanning)?1.:alpha-((1-alpha)*cos(n*twopidws)));
-                        theta = n * RES2pidws;
-                        *hanp++ = a * sin(theta);
-                        *hanp++ = a * cos(theta);
-                        /* if want Hanning file written */
-/*                      if(flag2){
-                          write(ofp, sinp, 8); write(ofp, cosp, 8);
-                        } *//* ofp points to hanfile which can be input */
-
-                     }
-                 }
-          } /* end calc of Hanning window factor */
-          if(flag2){
-             siz = hanp - hanfilrd;
-            write(ofp,hanfilrd,siz*8);
-          }
-          n = read(0, sampbuf, windbytes);      /* init samp window w. input */
-          if (n != windbytes)
-                die("premature end of infile");
-      }
-frame:
-        if(!nologftcalc){
-
-           for (k=0,hanfilrdp=hanfilrd; k<nchnls; k++) { /* for one frame: */
-              a = 0.0;
-              b = 0.0;
-              samp =sampbuf;
-              if(varres && (midi[k]>90) && flaghi){res=varres*res; flaghi=0;}
-              for (n=0; n<windsiz[k]; n++) { /*  calculate coefs  */
-                 a += *samp * *hanfilrdp++;
-                 b += *samp++ * *hanfilrdp++; /*wrote sin then cos*/
-              }
-              if(calcphase){
-                 if ( a < .01) phase = 0. ;
-                 else {
-                    phase = atan(a/b);
-                    outbuf[k] = phase;
-                 }
-              }
-              else{
-                 c = sqrt( a*a + b*b );
-                 if (!dbout)
-                   outbuf[k] = c;       /* stor as magnitude */
-                 else outbuf[k] = db = 20. * log10(c); /*       or db        */
-              }
-              if (print){
-                 midifreq = miditable[(int)(windsiz[k]/res)];
-                 if (!dbout)fprintf(stderr, /* print for mag coeff */
-                                    "chnl %d midi=%d freq %.1f coef %.1f\n",
-                                    k,midifreq, srate*(midi[k]>90?varres*res:res)/windsiz[k], c );
-
-                 else                   /* print for db coeff */
-                   fprintf(stderr,"chnl %d midi=%d freq %.1f db=%.1f\n",
-                           k, midifreq, srate*(midi[k]>90?varres*res:res)/windsiz[k], db );
-              }
-
-
-
-           }                            /* end calc from table read in */
         }
-       if(nologftcalc){
-          if((n=read(ifp2, outbuf, nchnls*4))< nchnls*4)
-            exit(-1);
-       }
-       if(xcorri){ /* cross correlate   */ /* note must change for one06
+	if(2*sumwind > HANMAX)die("2*Sumwind is > HANMAX.");
+	windmaxi = (int)windmax;     /* no of samples to read in is the size
+					of the largest window (lowest freq*/
+	if(windmaxi > WINDMAX)die("Windmaxi larger than WINDMAX");
+	windbytes = windmaxi *2;     /*windmaxi is old variable windsiz in dft*/
+	framebytes = frmsz * 2;
+
+	if (!hanwritten){            /* Window (or rect) values  not
+		    previously written to file so must calculate them */
+	      fprintf(stderr,"logft: %s window, %s out, making tables ..\n",
+		  (hanning) ? "hanning":"rect", (dbout) ? "db":"magnitude");
+	      hanp = hanfilrd;
+	      for (k=0; k < nchnls; ++k){
+		  if(windsiz_1)twopidws = twopi/(windsiz[k] - 1);
+		  else twopidws = twopi/(windsiz[k]);
+		  if(varres && (midi[k]>90))
+		       RES2pidws = (float)varres* res* twopi/windsiz[k];
+		  else RES2pidws = res* twopi/windsiz[k];
+		  onedws = 1./windsiz[k];
+
+		  for (n=0; n < windsiz[k]; ++n){
+		     a=onedws*((!hanning)?1.:alpha-((1-alpha)*cos(n*twopidws)));
+		     theta = n * RES2pidws;
+		     *hanp++ = a * sin(theta);
+		     *hanp++ = a * cos(theta);
+		     /* if want Hanning file written */
+/*                      if(flag2){
+		       write(ofp, sinp, 8); write(ofp, cosp, 8);
+		     } *//* ofp points to hanfile which can be input */
+
+		  }
+	      }
+        } /* end calc of Hanning window factor */
+        if(flag2){
+           siz = hanp - hanfilrd;
+          write(ofp,hanfilrd,siz*8);
+        }
+        n = read(0, sampbuf, windbytes);      /* init samp window w. input */
+        if (n != windbytes)
+              die("premature end of infile");
+frame:
+
+	for (k=0,hanfilrdp=hanfilrd; k<nchnls; k++) { /* for one frame: */
+	   a = 0.0;
+	   b = 0.0;
+	   samp =sampbuf;
+	   if(varres && (midi[k]>90) && flaghi){res=varres*res; flaghi=0;}
+	   for (n=0; n<windsiz[k]; n++) { /*  calculate coefs  */
+	      a += *samp * *hanfilrdp++;
+	      b += *samp++ * *hanfilrdp++; /*wrote sin then cos*/
+	   }
+	   if(calcphase){
+	      if ( a < .01) phase = 0. ;
+	      else {
+	  	phase = atan(a/b);
+	  	outbuf[k] = phase;
+	      }
+	   } else {
+	      c = sqrt( a*a + b*b );
+	      if (!dbout)
+	 	outbuf[k] = c;       /* stor as magnitude */
+	      else outbuf[k] = db = 20. * log10(c); /*       or db        */
+	   }
+	   if (print){
+	      midifreq = miditable[(int)(windsiz[k]/res)];
+	      if (!dbout)fprintf(stderr, /* print for mag coeff */
+			  "chnl %d midi=%d freq %.1f coef %.1f\n",
+			  k,midifreq, srate*(midi[k]>90?varres*res:res)/windsiz[k], c );
+	      else                   /* print for db coeff */
+		 fprintf(stderr,"chnl %d midi=%d freq %.1f db=%.1f\n",
+			 k, midifreq, srate*(midi[k]>90?varres*res:res)/windsiz[k], db );
+	   }
+	}                            /* end calc from table read in */
+        if(xcorri){ /* cross correlate   */ /* note must change for one06
                                      or not use doubcomb */
 
-          points = nchnls - hspac[nharm];/* do xcorrelation on "points"points*/
+           points = nchnls - hspac[nharm];/* do xcorrelation on "points"points*/
                                     /*stop before hspac[] reaches beyond EOF*/
-       if(doubcomb){ /* do "for ..." for doubcomb case */
-          rlcmbg = (int) (log((double)2.)/log(one03));
-          for (k=0; k < points; ++k){   /* begin for of xcorr values */
-             xcorr[k] = 0.;             /* initialize cross corr for kth point */
-             l = k;
-             m = 0;
-             if (k < rlcmbg){
-                combptr = comb + rlcmbg;
-                p = nchnls - k;
-                m = k;
-                while(p--)
-                  xcorr[k] += outbuf[m++] * (*combptr++);
-             }
-             else {
-                combptr = comb;
-                /*zzz*/                p = nchnls - k + rlcmbg;
-                m = k -rlcmbg;
-                while(p--)
-                   xcorr[k] += outbuf[m++] * (*combptr++);
-             }
-          }
+	  if(doubcomb){ /* do "for ..." for doubcomb case */
+	     rlcmbg = (int) (log((double)2.)/log(one03));
+	     for (k=0; k < points; ++k){   /* begin for of xcorr values */
+		xcorr[k] = 0.;             /* initialize cross corr for kth point */
+		l = k;
+		m = 0;
+		if (k < rlcmbg){
+		   combptr = comb + rlcmbg;
+		   p = nchnls - k;
+		   m = k;
+		   while(p--)
+		     xcorr[k] += outbuf[m++] * (*combptr++);
+		}
+		else {
+		   combptr = comb;
+		   /*zzz*/                p = nchnls - k + rlcmbg;
+		   m = k -rlcmbg;
+		   while(p--)
+		      xcorr[k] += outbuf[m++] * (*combptr++);
+		}
+	     }
+	  } else {
+	     for (k=0; k < points; ++k){
+		xcorr[k] = 0;              /* initialize cross corr for kth point */
+		l = k;
+		m = 0;
+		while(l--)
+		  xcorr[k] += outbuf[m++] * neg; /* mult points before kth
+						    by neg*/
+		p = nchnls - k;            /* p points from k to nchnls */
+		combptr = comb;            /* start comb on the kth point*/
+		while(p--){
+		   if(!maxreq || (*combptr && outbuf[m-1]<outbuf[m] &&
+				  outbuf[m]>outbuf[m+1])){ /* if not requiring max
+					/* or if at a max of logft */
+			  xcorr[k] += outbuf[m++] * (*combptr++);
+
+			}
+			else {  /* max req but no max in fn  or not at the
+				   position of a harmonic */
+			  xcorr[k] += outbuf[m++] * neg;
+			  ++combptr;
+			}
+		      }
+		    } /* end for calc of points values of xcorr[k] */
+	  }/* end else for ordinary comb */
+	  /*both can use from here */
+	  rempoints = nchnls - points;/*remaining points for number of points
+					 in frame = nchnls*/
+	  while(rempoints--)
+		   xcorr[k++] = 0.;
+	  /* to print to stdout */ k = nchnls; l=0;
+	  if(xcorrprnt){
+	    while(k--)
+	      fprintf(stderr,"xcorr[%d]=%.2f\n", l++, xcorr[l]);
+	  }
        }
-      else{
-          for (k=0; k < points; ++k){
-             xcorr[k] = 0;              /* initialize cross corr for kth point */
-             l = k;
-             m = 0;
-             while(l--)
-               xcorr[k] += outbuf[m++] * neg; /* mult points before kth
-                                                 by neg*/
-             p = nchnls - k;            /* p points from k to nchnls */
-             combptr = comb;            /* start comb on the kth point*/
-             while(p--){
-                if(!maxreq || (*combptr && outbuf[m-1]<outbuf[m] &&
-                               outbuf[m]>outbuf[m+1])){ /* if not requiring max
-                                     /* or if at a max of logft */
-                       xcorr[k] += outbuf[m++] * (*combptr++);
 
-                     }
-                     else {  /* max req but no max in fn  or not at the
-                                position of a harmonic */
-                       xcorr[k] += outbuf[m++] * neg;
-                       ++combptr;
-                     }
-                   }
-                 } /* end for calc of points values of xcorr[k] */
-          }/* end else for ordinary comb */
-          /*both can use from here */
-          rempoints = nchnls - points;/*remaining points for number of points
-                                         in frame = nchnls*/
-          while(rempoints--)
-                   xcorr[k++] = 0.;
-          /* to print to stdout */ k = nchnls; l=0;
-          if(xcorrprnt){
-            while(k--)
-              fprintf(stderr,"xcorr[%d]=%.2f\n", l++, xcorr[l]);
-          }
-
-       }/* end xcorrelation */
-if(!nologftcalc){
        if (noout==0){/*if noout==1 don't print to output file; want numbers */
               if((nw = write(1, outbuf, 4*nchnls)) < 0)/*print outbuf to file*/
                 fprintf(stderr, "nw = %d  ERROR\n", nw);
@@ -481,7 +455,7 @@ if(!nologftcalc){
             fprintf(stderr, "error writing from outbuf\n wrote %d bytes\
                 and should have written %d\n", nw, 4*nchnls);
        }
-}
+
         /* if want normalized graph of xcorrelation */
         if(nrmxcorr && xcorri){
                  hivaloutbuf = 0.; xn = 0.;
@@ -580,7 +554,6 @@ if(!nologftcalc){
                  }/* end if want graph of result of peakpicker*/
         } /*end peak picker  */
 
-if(!nologftcalc){
        if ((n = windmaxi - frmsz) > 0) {       /* nxt: for step < windowsiz */
                 samp = sampbuf;
                 samp2 = sampbuf + frmsz;
@@ -590,8 +563,7 @@ if(!nologftcalc){
                 if (n == framebytes){
                         goto frame;
                 }
-        }
-        else {
+        } else {
                 for (n = -n; n>=windmaxi; n-=windmaxi)  /* else waste any   */
                         read(0, sampbuf, windbytes);    /*   extra samps    */
                 if (n)  read(0, sampbuf, n*2);
@@ -601,9 +573,6 @@ if(!nologftcalc){
                         goto frame;             /*      & go calc new frame */
                 }
         }
-}
-        if(nologftcalc)
-                goto frame;
 } /* end main */
 
 die(s)
