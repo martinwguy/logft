@@ -66,6 +66,7 @@ are just using the 1st value from miditable[lam] so pretty stupid to calculate
 the whole thing
 /***************************************************************************/
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 #include <fcntl.h> /* defines O_RDONLY */
@@ -187,13 +188,13 @@ main(argc,argv)
                         case 'w':  sscanf(cp, "%s", logftvalin);
                                 nologftcalc=1;
                                 break;
-                        case 'W':  sscanf(cp, "%d", windsiz_1);
+                        case 'W':  sscanf(cp, "%d", &windsiz_1);
                                 break;
                         case 'M': sscanf(cp, "%d", &maxreq);
                                 break;
                         case 'T': sscanf(cp, "%f", &tuncorrec);
                                 break;
-                        case 'S': sscanf(cp, "f", &srate);
+                        case 'S': sscanf(cp, "%f", &srate);
                                 break;
                         case 's': sscanf(cp, "%d", &calcphase);
                                 break;

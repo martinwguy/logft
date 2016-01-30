@@ -3,7 +3,7 @@
 
 /* In general, zero for any field indicates the value is unknown */
 
-typedef union maxmin {
+union maxmin {
    short s;
    int i;
    float f;
