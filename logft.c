@@ -112,7 +112,7 @@ main(argc,argv)
         int     windsiz[MAXCHNLS], hspac[41], *hspacptr, xcorri=0,graph=0;
         int     flag, windmaxi, sumwind=0, res = RES, nharm=NHARM;
         int     points, m, xcorrprnt=0, nw,rempoints, pikpeak=0,hisamp,sampno;
-        int     nextsamp, grphpeak=0, prntpik=0, ofp, hanwritten=0, flag2,ifp;
+        int     nextsamp, grphpeak=0, prntpik=0, ofp, ifp;
         int     minmidi, minlam, line=0, noout=0, nrmxcorr=0, halfsemi=1;
         int     midifreq, midi[MAXCHNLS], varres=2, flaghi = 1, flagm = 0;
         int     ofpm, backzero=1, ifp2, fltresp=0, maxreq=0;
@@ -164,11 +164,6 @@ main(argc,argv)
                         case 'k': sscanf(cp, "%d", &pikpeak);
                                 break;
                         case 'e': sscanf(cp, "%d", &prntpik);
-                                break;
-                        case 'i': sscanf(cp, "%s", hanfile);
-                                flag2=1; hanwritten=0;
-                                break;
-                        case 'j': sscanf(cp, "%d", &hanwritten);
                                 break;
                         case 'l': sscanf(cp, "%d", &line);
                                 break;
@@ -228,10 +223,6 @@ main(argc,argv)
         if(doubcomb) nharm *= 2;
         minhz /= tuncorrec;
 
-        if (flag2){
-          ofp = creat(hanfile,PMODE);
-          fprintf(stderr,"Prnting hanning values to file %s\n", hanfile);
-        }
         if (flagm){
           ofpm = creat(midifile,PMODE);
           fprintf(stderr, "Prnting midi values to file %s\n", midifile);
@@ -248,13 +239,6 @@ main(argc,argv)
            hdr.frm_minfreq = minhz;
            if((nw = write(1, &hdr, sizeof hdr)) != sizeof hdr)
 	     die("Error writing file header");
-        }
-        if (hanwritten){
-           if((ifp = open("hanning",O_RDONLY)) < 0)
-             die("can't open hanning");
-           if((n=read(ifp, hanfilrd, 8*HANMAX))<0)
-             die("can't read hanning");
-           hanfilrdp = hanfilrd;
         }
         one06 = pow(2.,1./12.);
         one03 = pow(2.,1./24.); /* for stepping by 1/2 semitone */
@@ -317,36 +301,24 @@ main(argc,argv)
 	windbytes = windmaxi *2;     /*windmaxi is old variable windsiz in dft*/
 	framebytes = frmsz * 2;
 
-	if (!hanwritten){            /* Window (or rect) values  not
-		    previously written to file so must calculate them */
-	      fprintf(stderr,"logft: %s window, %s out, making tables ..\n",
-		  (hanning) ? "hanning":"rect", (dbout) ? "db":"magnitude");
-	      hanp = hanfilrd;
-	      for (k=0; k < nchnls; ++k){
-		  if(windsiz_1)twopidws = twopi/(windsiz[k] - 1);
-		  else twopidws = twopi/(windsiz[k]);
-		  if(varres && (midi[k]>90))
-		       RES2pidws = (float)varres* res* twopi/windsiz[k];
-		  else RES2pidws = res* twopi/windsiz[k];
-		  onedws = 1./windsiz[k];
+	/* Calculate window (or rect) values */
+	hanp = hanfilrd;
+	for (k=0; k < nchnls; ++k){
+	    if(windsiz_1)twopidws = twopi/(windsiz[k] - 1);
+	    else twopidws = twopi/(windsiz[k]);
+	    if(varres && (midi[k]>90))
+		 RES2pidws = (float)varres* res* twopi/windsiz[k];
+	    else RES2pidws = res* twopi/windsiz[k];
+	    onedws = 1./windsiz[k];
 
-		  for (n=0; n < windsiz[k]; ++n){
-		     a=onedws*((!hanning)?1.:alpha-((1-alpha)*cos(n*twopidws)));
-		     theta = n * RES2pidws;
-		     *hanp++ = a * sin(theta);
-		     *hanp++ = a * cos(theta);
-		     /* if want Hanning file written */
-/*                      if(flag2){
-		       write(ofp, sinp, 8); write(ofp, cosp, 8);
-		     } *//* ofp points to hanfile which can be input */
+	    for (n=0; n < windsiz[k]; ++n){
+	       a=onedws*((!hanning)?1.:alpha-((1-alpha)*cos(n*twopidws)));
+	       theta = n * RES2pidws;
+	       *hanp++ = a * sin(theta);
+	       *hanp++ = a * cos(theta);
+	    }
+	}
 
-		  }
-	      }
-        } /* end calc of Hanning window factor */
-        if(flag2){
-           siz = hanp - hanfilrd;
-          write(ofp,hanfilrd,siz*8);
-        }
         n = read(0, sampbuf, windbytes);      /* init samp window w. input */
         if (n != windbytes)
               die("premature end of infile");
