@@ -20,8 +20,6 @@ adaptation of dft.c using log channels separated by
 /*   -pNCHNLS(156)Number of frequencies for which logft calculated per frame
 /*   -fMINHZ(174.6)Lowest frequency value = 7.05 = F3 = midi 53
 /*   -aHALFSEMI(1) Calculate with 2 frequency values per semitone.
-/*   -vVARRES(1)   Makes resolution 4 time original for midinotes > 90 (G6).
-                  7/19/88 change so makes resolutin VARRES times orig w deflt 2
 /*   -TTUNCORREC   Follow with tuning correction for sounds digitized at
                   ems(1.04) implemented 7/20/88
 /*   -WWINDSIZ-1(0)Use windsiz - 1 in hanning(mm) window
@@ -55,7 +53,6 @@ adaptation of dft.c using log channels separated by
 static struct  frmhdr hdr;
 static short   dumphdr[1024];                  /* dump header */
 static short   sampbuf[WINDMAX];               /* buffer for input samples        */
-static int miditable[MAXLAM + 1];
 static float   outbuf[MAXCHNLS];     /* frame of out coefs in mag or db */
 static float   srate = SRATE, midtuncor=1.;
 
@@ -71,8 +68,7 @@ main(argc,argv)
         int     windsiz[MAXCHNLS];
         int     flag, windmaxi, sumwind=0, res = RES;
         int     nw;
-        int     minmidi, minlam, halfsemi=1;
-        int     midi[MAXCHNLS], varres=2, flaghi = 1;
+        int     halfsemi=1;
         int     maxreq=0;
         int     hamming = 1, windsiz_1 = 0, calcphase=0;
         int     writehdr=0, dropmidchnls=0;
@@ -102,8 +98,6 @@ main(argc,argv)
                         case 'p':sscanf(cp,"%d",&nchnls);/*num points in ft*/
                                 break;
                         case 'a': sscanf(cp, "%d", &halfsemi);
-                                break;
-                        case 'v': sscanf(cp, "%d", &varres);
                                 break;
                         case 'W':  sscanf(cp, "%d", &windsiz_1);
                                 break;
@@ -137,9 +131,6 @@ main(argc,argv)
                  fprintf(stderr,"Using Hamming window\n");
         }
         else alpha = (double).5; /* hanning */
-        makemiditable();
-        minlam = (int)((srate/minhz)+ .5);
-        minmidi = miditable[minlam];
         if(nchnls > MAXCHNLS)die("Too many channels");
 
         minhz /= tuncorrec;
@@ -169,15 +160,12 @@ main(argc,argv)
 
         k=nchnls;       n=0;
         while (k--){
-           midi[n]= minmidi + ((halfsemi==1) ? (n >> 1) : n) ;
            if(halfsemi==1){  /* 2 chnls per semitone */
              windsizf[n] = (float)windmax/pow(one03,(float)n);
            }
            else{
              windsizf[n] = (float)windmax/pow(one06,(float)n);
            }
-           if(varres && (midi[n]>90))windsizf[n] = varres * windsizf[n];
-                         /* for notes over G6 use varres * resolution */
            windsiz[n] = (int)windsizf[n];
            sumwind += windsiz[n];        /* total window space needed
                                          for sin tables = sum of all windows */
@@ -195,9 +183,7 @@ main(argc,argv)
 	for (k=0; k < nchnls; ++k){
 	    if(windsiz_1)twopidws = TWOPI/(windsiz[k] - 1);
 	    else twopidws = TWOPI/(windsiz[k]);
-	    if(varres && (midi[k]>90))
-		 RES2pidws = (float)varres* res* TWOPI/windsiz[k];
-	    else RES2pidws = res* TWOPI/windsiz[k];
+	    RES2pidws = res* TWOPI/windsiz[k];
 	    onedws = 1./windsiz[k];
 
 	    for (n=0; n < windsiz[k]; ++n){
@@ -217,7 +203,6 @@ frame:
 	   a = 0.0;
 	   b = 0.0;
 	   samp =sampbuf;
-	   if(varres && (midi[k]>90) && flaghi){res=varres*res; flaghi=0;}
 	   for (n=0; n<windsiz[k]; n++) { /*  calculate coefs  */
 	      a += *samp * *hanfilrdp++;
 	      b += *samp++ * *hanfilrdp++; /*wrote sin then cos*/
@@ -272,16 +257,4 @@ die(s)
 {
         fprintf(stderr,"DIE, HELAS!  %s\n",s);
         exit(1);
-}
-
-makemiditable() {  /* returns midi value for given period in samples */
-         float A, B, freq;
-         int lam;
-         A = (float)(12.0/log(2.0));
-         B = (float)(69.0 - A* log(440.0));
-         for (lam = MINLAM; lam <= MAXLAM; ++lam) {
-/*                freq = (srate/lam)*1.04;    /* 4% flat tuning  */
-                  freq = (srate/lam)*midtuncor;
-                  miditable[lam] = (int)(A * log(freq) + B + 0.5);
-         }
 }
