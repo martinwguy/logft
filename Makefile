@@ -1,7 +1,7 @@
 CFLAGS=-O2 -Wunused
 
 logft: logft.o
-	cc -o $@ $< -lm
+	cc -o $@ $< -lsndfile -lpng -lm
 
 logft.o: logft.c frmhdr.h
 	$(CC) $(CFLAGS) -c $<
