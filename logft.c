@@ -21,7 +21,6 @@ adaptation of dft.c using log channels separated by
 /*   -HHAMMING(0) For Hamming instead of Hanning
 /*   -PPRINT(0)   Print values of logft to stderr.
 /*   -dDB (0)     Calculate logft in decibels.
-/*   -bDEBUG(0)   Debug = 1 for values used in debugging.
 /*   -rRES(17)    Resolution f/deltaf.
 /*   -FFRMSZ(500) Number of samples analyzed per frame.
 /*   -pNCHNLS(156)Number of frequencies for which logft calculated per frame
@@ -110,7 +109,7 @@ main(argc,argv)
         int     frmsz = FRMSZ, windbytes, framebytes, ncoefs,nchnls=NCHNLS;
         int     p, hanning = 1, dbout = 0, print = 0,frmcnt = 0,combprint=0,l;
         int     windsiz[MAXCHNLS], hspac[41], *hspacptr, xcorri=0,graph=0;
-        int     debug = 0, flag, windmaxi, sumwind=0, res = RES, nharm=NHARM;
+        int     flag, windmaxi, sumwind=0, res = RES, nharm=NHARM;
         int     points, m, xcorrprnt=0, nw,rempoints, pikpeak=0,hisamp,sampno;
         int     nextsamp, grphpeak=0, prntpik=0, ofp, hanwritten=0, flag2,ifp;
         int     minmidi, minlam, line=0, noout=0, nrmxcorr=0, halfsemi=1;
@@ -140,8 +139,6 @@ main(argc,argv)
                         case 'd': sscanf(cp, "%d", &dbout);
                                 break;
                         case 'P': sscanf(cp, "%d", &print);
-                                break;
-                        case 'b': sscanf(cp, "%d", &debug);
                                 break;
                         case 'f': sscanf(cp, "%f", &minhz);
                                 break;
@@ -229,20 +226,10 @@ main(argc,argv)
         minlam = (int)((srate/minhz)+ .5);
         minmidi = miditable[minlam];
         if(nchnls > MAXCHNLS)die("Too many channels");
-        fprintf(stderr,"Resolution = %d; Minhertz = %.1f; Minlam=%d; Minmidi=%d;\n",res,minhz,minlam,minmidi);
-        fprintf(stderr, "midi tuning correction = %f\n",midtuncor);
-        fprintf(stderr,"Frame size = %d;Number of points = %d\n",frmsz,nchnls);
-        if(xcorri) fprintf(stderr,"Number of harmonics=%d\n",nharm);
-        if(doubcomb)fprintf(stderr,
-      "Using twice as many harm with alt signs to suppress octave error up\n");
+
         if(doubcomb) nharm *= 2;
-        if(halfsemi)fprintf(stderr,"Printing two channels per semitone\n");
-        if(noout==1)fprintf(stderr,
-               "Not printing to outfile; use >& for numbers\n");
-        if(backzero)fprintf(stderr,"Cross corr fn = 0 bet harmonics\n");
-        if(varres)fprintf(stderr,"Variable resolution; %d*RES over G6.\n",varres);
-        fprintf(stderr,"Tuning correc = %.2f\n",tuncorrec);
         minhz /= tuncorrec;
+
         if (flag2){
           ofp = creat(hanfile,PMODE);
           fprintf(stderr,"Prnting hanning values to file %s\n", hanfile);
@@ -261,10 +248,8 @@ main(argc,argv)
            hdr.frm_sr = srate;
            hdr.frm_frm_p_s = srate/frmsz;
            hdr.frm_minfreq = minhz;
-           if((nw = write(1, &hdr, sizeof hdr)) != sizeof hdr){
-                                    /*print header to stdout*/
-             fprintf(stderr, "nw = %d  ERROR\n", nw);
-           }
+           if((nw = write(1, &hdr, sizeof hdr)) != sizeof hdr)
+	     die("Error writing file header");
         }
         if(!nologftcalc){
            if (hanwritten){
@@ -273,13 +258,11 @@ main(argc,argv)
               if((n=read(ifp, hanfilrd, 8*HANMAX))<0)
                 die("can't read hanning");
               hanfilrdp = hanfilrd;
-              fprintf(stderr,"Reading %d bytes from file 'Hanning'\n",n);
            }
         }
         if (nologftcalc){
            if((ifp2 = open(logftvalin,O_RDONLY)) < 0)
              die("Can't open logftvalin");
-           fprintf(stderr, "reading from file '%s' prev calc\n",logftvalin);
         }
         one06 = pow(2.,1./12.);
         one03 = pow(2.,1./24.); /* for stepping by 1/2 semitone */
@@ -335,20 +318,8 @@ main(argc,argv)
            windsiz[n] = (int)windsizf[n];
            sumwind += windsiz[n];        /* total window space needed
                                          for sin tables = sum of all windows */
-/*         if(debug) fprintf(stderr,"n=%d midi[n]=%d windsiz=%d\n"
-                                           ,n,midi[n],windsiz[n]); */
-/*         if(k==nchnls-1 && debug){
-/*              fprintf(stderr,"                            TABLE I \n\n");
-/*              fprintf(stderr,"CHANNEL\tMIDIPITCH\tFREQUENCY\tWINDOW\(SAMPLES\)\t\(MSEC\)\n\n");
-/*           }
-/*         if(debug)
-/*              fprintf(stderr,"  %d\t%d\t\t%.0f\t\t%d\t\t%.0f\n",n,midi[n]-1,srate*(midi[n]>90?varres*res:res)/windsizf[n],windsiz[n],100
-0.*windsizf[n]/srate);
-/* /* -1 because of tuning correction */
-
            ++n;
          }
-        if (debug){fprintf(stderr, "\nsumwind=%d\n", sumwind);}
         if(!nologftcalc){
            if(2*sumwind > HANMAX)die("2*Sumwind is > HANMAX.");
            windmaxi = (int)windmax;     /* no of samples to read in is the size
@@ -457,14 +428,11 @@ frame:
                 combptr = comb;
                 /*zzz*/                p = nchnls - k + rlcmbg;
                 m = k -rlcmbg;
-                while(p--){
+                while(p--)
                    xcorr[k] += outbuf[m++] * (*combptr++);
-                   /*if(debug)  fprintf(stderr,"k >= rlcmbg; xcorr[%d]=%f outbuf[%d]=%.1f *combptr=%.1f\n",k, xcorr[k],m-1,outbuf[m-1],*(c
-ombptr-1));*/
-                }
              }
-          }                             /* end "for k etc "calc of points values of xcorr[k] */
-       }                                /* end "for..." for doubcomb */
+          }
+       }
       else{
           for (k=0; k < points; ++k){
              xcorr[k] = 0;              /* initialize cross corr for kth point */
@@ -479,23 +447,18 @@ ombptr-1));*/
                 if(!maxreq || (*combptr && outbuf[m-1]<outbuf[m] &&
                                outbuf[m]>outbuf[m+1])){ /* if not requiring max
                                      /* or if at a max of logft */
-if(debug)
-  fprintf(stderr,"max not req or at max  outbuf[m]=%.1f *combptr=%.1f",outbuf[m],*combptr);
                        xcorr[k] += outbuf[m++] * (*combptr++);
 
                      }
                      else {  /* max req but no max in fn  or not at the
                                 position of a harmonic */
-if(debug)
-  fprintf(stderr,"NO MAX or not at pos of harm; outbuf[m]=%.1f *combptr=%.1f",outbuf[m],*combptr);
                        xcorr[k] += outbuf[m++] * neg;
                        ++combptr;
                      }
-if(debug)fprintf(stderr, " k=%d m=%d xcorr[k]=%.1f\n",k,m-1,xcorr[k]);
-                   } /* end while */
+                   }
                  } /* end for calc of points values of xcorr[k] */
-}/* end else for ordinary comb */
-/*both can use from here */
+          }/* end else for ordinary comb */
+          /*both can use from here */
           rempoints = nchnls - points;/*remaining points for number of points
                                          in frame = nchnls*/
           while(rempoints--)
@@ -529,9 +492,7 @@ if(!nologftcalc){
                           dltnm1 = dltn;
                           dltn = xn - xnm1;
                           if(((dltn*dltnm1)<0) && (dltn < 0)){ /* positive pk*/
-/*                              if(debug)fprintf(stderr, " %d\t%2.2f peak\n",
-                                                 sampno-1, xnm1);
-*/                              if(xnm1 > hivaloutbuf){
+                                if(xnm1 > hivaloutbuf){
                                          hivaloutbuf = xnm1;
                                 }
 
@@ -547,9 +508,7 @@ if(!nologftcalc){
                           dltnm1 = dltn;
                          dltn = xn - xnm1;
                           if(((dltn*dltnm1)<0) && (dltn < 0)){ /* positive pk*/
-/*                              if(debug)fprintf(stderr, " %d\t%2.2f peak\n",
-                                                 sampno-1, xnm1);
-*/                              if(xnm1 > hivalxcorr){
+                                if(xnm1 > hivalxcorr){
                                          hivalxcorr = xnm1;
                                 }
                           }
@@ -570,7 +529,6 @@ if(!nologftcalc){
           }
        }  /*end if want graph of cross correlation */
        ++frmcnt;
-       fprintf(stderr,"\nlogft frame %d",frmcnt);
 
         /* peak picker for cross correlation */
         if(pikpeak && xcorri){
@@ -583,9 +541,7 @@ if(!nologftcalc){
                           dltnm1 = dltn;
                           dltn = xn - xnm1;
                           if(((dltn*dltnm1)<0) && (dltn < 0)){ /* positive pk*/
-/*                              if(debug)fprintf(stderr, " %d\t%2.2f peak\n",
-                                                 sampno-1, xnm1);
-*/                              if(xnm1 > hival){
+                                if(xnm1 > hival){
                                          nextval = hival;
                                          hival = xnm1;
                                          nextsamp = hisamp;
@@ -606,7 +562,6 @@ if(!nologftcalc){
                      if ((pitch - (short)minmidi) % 2 != 0)
                        pitch = 0;
                    write(ofpm, &pitch,2);
-/*                 fprintf(stderr, " test of pitch = %d\n", pitch); */
                  }
 
                  if(prntpik)
@@ -648,7 +603,6 @@ if(!nologftcalc){
 }
         if(nologftcalc)
                 goto frame;
-        fprintf(stderr,"\nwrote %d frames of %d coefs\n", frmcnt, nchnls);
 } /* end main */
 
 die(s)
