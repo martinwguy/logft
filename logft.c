@@ -1,6 +1,5 @@
 /* LOGFT.C
- * Takes as infile a soundfile using libsndfile
- *
+ * Takes as infile a soundfile using libsndfile *
  * adaptation of dft.c using log channels separated by
  * a semitone with resolution of a semitone
  * later modified; two chnls/semitone with variable resolution
@@ -45,7 +44,7 @@ main(argc,argv)
 	int     srate = 0;
 	float   midtuncor=1.;
         double  *hanfilrd;
-        double  theta, a, b, c, db, one06, one03;
+        double  one06, one03;
         double  onedws, twopidws, RES2pidws, alpha;
         int     frmsz = FRMSZ, nchnls=NCHNLS;
         int     hann = 1, frmcnt = 0;
@@ -58,8 +57,7 @@ main(argc,argv)
         char    *cp;
         float   windmax, minhz=MINHZ, tuncorrec=1.00;
         register int    n, k;
-        register float  *samp, *samp2;
-        register double *hanp, *hanfilrdp;
+        register double *hanfilrdp;
 	float  maxAmp=0.0, dynRange=(float)DYNRANGE;
 
 	/* Stuff for reading sound file */
@@ -119,7 +117,7 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 -aHALFSEMI(1) Calculate with 2 frequency values per semitone.\n\
 -TTUNCORREC   Follow with tuning correction for sounds digitized at\n\
               ems(1.04) implemented 7/20/88\n\
--WWINDSIZ-1(0)Use windsiz - 1 in hann(mm) window\n\
+-WWINDSIZ-1(0)Use windsiz - 1 in hann(mming) window\n\
 -SSRATE       Sample rate (default: auto-detected)\n\
 -AmaxAmp(0)   Output value to display as white (negative values brighten output)\n\
 -DdynRange(%d) Dynamic range of output.\n\
@@ -180,34 +178,33 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
                     number which is const=res; freq is varied with windsiz[k]
                     and equals  srate*res/windsiz[k] */
 
-        k=nchnls;       n=0;
 fputs("Window sizes:", stderr);
-        while (k--){
+	for (k=0; k < nchnls; ++k) {
            if(halfsemi==1){  /* 2 chnls per semitone */
-             windsizf[n] = (float)windmax/pow(one03,(float)n);
+             windsizf[k] = (float)windmax/pow(one03,(float)k);
            } else {
-             windsizf[n] = (float)windmax/pow(one06,(float)n);
+             windsizf[k] = (float)windmax/pow(one06,(float)k);
            }
-           windsiz[n] = (int)windsizf[n];
-           sumwind += windsiz[n];        /* total window space needed
+           windsiz[k] = (int)windsizf[k];
+           sumwind += windsiz[k];        /* total window space needed
                                          for sin tables = sum of all windows */
-fprintf(stderr, " %d", windsiz[n]);
-           ++n;
+fprintf(stderr, " %d", windsiz[k]);
         }
 fprintf(stderr, "\n");
 
+	/* Allocate memory for sin/cos pairs */
         hanfilrd = (double *)malloc(2*sumwind*sizeof(double));
         if (hanfilrd == NULL)
           die ("memory allocation failure");
 		
 	windmaxi = (int)windmax;     /* no of samples to read in is the size
-					of the largest window (lowest freq*/
+					of the largest window (lowest freq)*/
 
 	sampbuf = calloc(windmaxi, sizeof(*sampbuf));
 	if (!sampbuf) die("Not enough memory");
 
 	/* Calculate window (or rect) values */
-	hanp = hanfilrd;
+	hanfilrdp = hanfilrd;
 	for (k=0; k < nchnls; ++k){
 	    if(windsiz_1)twopidws = TWOPI/(windsiz[k] - 1);
 	    else twopidws = TWOPI/(windsiz[k]);
@@ -215,10 +212,10 @@ fprintf(stderr, "\n");
 	    onedws = 1./windsiz[k];
 
 	    for (n=0; n < windsiz[k]; ++n){
-	       a=onedws*((!hann)?1.:alpha-((1-alpha)*cos(n*twopidws)));
-	       theta = n * RES2pidws;
-	       *hanp++ = a * sin(theta);
-	       *hanp++ = a * cos(theta);
+	       double a = onedws*((!hann)?1.:alpha-((1-alpha)*cos(n*twopidws)));
+	       double theta = n * RES2pidws;
+	       *hanfilrdp++ = a * sin(theta);
+	       *hanfilrdp++ = a * cos(theta);
 	    }
 	}
 
@@ -269,16 +266,16 @@ fprintf(stderr, "\n");
 	}
 
 frame:
-	for (k=0,hanfilrdp=hanfilrd; k<nchnls; k++) { /* for one frame: */
-	   a = 0.0;
-	   b = 0.0;
-	   samp =sampbuf;
+	hanfilrdp = hanfilrd;
+	for (k=0; k<nchnls; k++) { /* for one frame: */
+	   double a = 0.0, b = 0.0, c;
+	   float *samp = sampbuf;
 	   for (n=0; n<windsiz[k]; n++) { /*  calculate coefs  */
 	      a += *samp * *hanfilrdp++;
 	      b += *samp++ * *hanfilrdp++; /*wrote sin then cos*/
 	   }
 	   c = sqrt( a*a + b*b );
-	   outbuf[k] = db = 20. * log10(c);
+	   outbuf[k] = 20. * log10(c);
 	}                            /* end calc from table read in */
 
 	output_frame(png_ptr, outbuf, png_width, maxAmp, -dynRange);
@@ -286,8 +283,8 @@ frame:
         ++frmcnt;
 
         if ((n = windmaxi - frmsz) > 0) {       /* nxt: for step < windowsiz */
-                samp = sampbuf;
-                samp2 = sampbuf + frmsz;
+                float *samp = sampbuf;
+                float *samp2 = sampbuf + frmsz;
                 while (n--)
                         *samp++ = *samp2++;     /*      slide the sample buf */
                 n = sf_readf_float(sndfile, samp, frmsz);  /*     & refill to windmaxi  */
