@@ -7,18 +7,6 @@
  * calculates discrete Fourier transform of binary short sound samples
  * (from stdin) and writes binary float coefficients (mag or db) to stdout.
  *
- * usage: logft [options] infile.wav outfile.png
- * -hHANN(1)     Use Hann/Hamming window(1) or (0) rectangular.
- * -HHAMMING(0)  For Hamming instead of Hann
- * -rRES(17)     Resolution f/deltaf.
- * -FFRMSZ(500)  Number of samples analyzed per frame.
- * -pNCHNLS(156) Number of frequencies for which logft calculated per frame
- * -fMINHZ(174.6)Lowest frequency value = 7.05 = F3 = midi 53
- * -aHALFSEMI(1) Calculate with 2 frequency values per semitone.
- * -TTUNCORREC   Follow with tuning correction for sounds digitized at
- *               ems(1.04) implemented 7/20/88
- * -WWINDSIZ-1(0)Use windsiz - 1 in hann(mm) window
- * -SSRATE       Sample rate (auto-detected)
  */
 
 #include <stdlib.h>
@@ -37,6 +25,8 @@
 /*#define MAXHZ 1600  */
 #define RES 34 /* f/deltaf = 1/.06 */
 #define NCHNLS 156
+#define DYNRANGE 100
+
 #define TWOPI  6.2831854
 #define PI  3.1415927
 #define PMODE 0644
@@ -72,6 +62,7 @@ static float   sampbuf[WINDMAX];               /* buffer for input samples      
         register int    n, k;
         register float  *samp, *samp2;
         register double *hanp, *hanfilrdp;
+	float  maxAmp=0.0, dynRange=(float)DYNRANGE;
 
 	/* Stuff for reading sound file */
 	char *fileNameIn;
@@ -102,6 +93,10 @@ static float   sampbuf[WINDMAX];               /* buffer for input samples      
 			break;
 		case 'a': sscanf(cp, "%d", &halfsemi);
 			break;
+		case 'A': sscanf(cp, "%f", &maxAmp);	/* value to display as white (usually negative) */
+			break;
+		case 'D': sscanf(cp, "%f", &dynRange);	/* maxAmp-dynRange displays as black */
+			break;
 		case 'W':  sscanf(cp, "%d", &windsiz_1);
 			break;
 		case 'M': sscanf(cp, "%d", &maxreq);
@@ -114,18 +109,32 @@ static float   sampbuf[WINDMAX];               /* buffer for input samples      
 			break;
 
 		default: fprintf(stderr, "unknown option \"%c\"\n", flag);
+
+usage:
+fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
+-h0           Use rectangular window instead of Hann/Hamming\n\
+-H1           Use Hamming window instead of Hann\n\
+-rRES(17)     Resolution f/deltaf.\n\
+-FFRMSZ(500)  Number of samples analyzed per frame.\n\
+-pNCHNLS(156) Number of frequencies for which logft calculated per frame\n\
+-fMINHZ(174.6)Lowest frequency value = 7.05 = F3 = midi 53\n\
+-aHALFSEMI(1) Calculate with 2 frequency values per semitone.\n\
+-TTUNCORREC   Follow with tuning correction for sounds digitized at\n\
+              ems(1.04) implemented 7/20/88\n\
+-WWINDSIZ-1(0)Use windsiz - 1 in hann(mm) window\n\
+-SSRATE       Sample rate (default: auto-detected)\n\
+-AmaxAmp(0)   Output value to display as white (negative values brighten output)\n\
+-DdynRange(%d) Dynamic range of output.\n\
+", DYNRANGE);
+			exit(1);
 			break;
                 }
                 argc--; argv++;
         }
 
-	if (argc != 2) {
-	    fputs("Usage: logft [options] infile.wav outfile.png\n", stderr);
-	    exit(1);
-	} else {
-	    fileNameIn  = argv[0];
-	    fileNameOut = argv[1];
-	}
+	if (argc != 2) goto usage;
+	fileNameIn  = argv[0];
+	fileNameOut = argv[1];
 
 	if (!hann)
             fprintf(stderr,"Using rectangular window\n");
@@ -286,7 +295,7 @@ frame:
 	   outbuf[k] = db = 20. * log10(c);
 	}                            /* end calc from table read in */
 
-	output_frame(png_ptr, outbuf, png_width, (float)0.0, (float)-90);
+	output_frame(png_ptr, outbuf, png_width, maxAmp, -dynRange);
 
         ++frmcnt;
 
@@ -316,7 +325,7 @@ frame:
 
 } /* end main */
 
-static double minval, maxval;
+static float minval, maxval;
 static int initval=0;	/* Have we initialized minval and maxval? */
 
 static void
@@ -331,7 +340,7 @@ output_frame(png_structp png_ptr, float *outbuf, png_uint_32 png_width,
 	     float maxAmp, float dynRange)
 {
     static png_bytep png_row = NULL;
-    unsigned from, to;
+    unsigned i;
 
     if (png_row == NULL) png_row = (png_bytep) malloc(png_width);
     if (!png_row) die("Not enough memory");
@@ -342,15 +351,15 @@ output_frame(png_structp png_ptr, float *outbuf, png_uint_32 png_width,
     }
 
     /* Convert floats to 0-255 */
-    for (from = png_width, to = png_width; to > 0; from--, to-- ) {
-        double value = outbuf[from];
+    for (i = 0; i < png_width; i++ ) {
+        double value = outbuf[i];
 	if (value < minval) minval=value;
         if (value > maxval) maxval=value;
 	value -= maxAmp;
-	value /= dynRange;
+	value /= dynRange; /* values are <=0 and dynRange is negative */
         if (value < 0.0) { value = 0.0; }
         if (value > 1.0) { value = 1.0; }
-        png_row[to] = ((1.0-value) * 255) + 0.5;
+        png_row[i] = ((1.0-value) * 255) + 0.5;
     }
     png_write_row(png_ptr, png_row);
 }
