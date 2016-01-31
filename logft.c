@@ -1,5 +1,7 @@
 /* LOGFT.C
  * Reads a soundfile writes a log-frequncy-axis spectrogram.
+ * The output file needs rotating anticlockwise by 90 degrees
+ * to be the right way up.
  *
  * Usage: logft [options] infile.wav outfile.png
  *
@@ -25,23 +27,27 @@
 #define TWOPI  (2.0 * PI)
 
 /* Forward function declarations */
-static void output_frame(png_structp png_ptr, float *outbuf,
-			 png_uint_32 png_width, float maxAmp, float dynRange);
-static void show_min_max(void);
+static void write_png(	char *fileNameOut,
+			float **outbufs,
+			int nframes, int nchnls,
+			float maxAmp, float dynRange );
 
 main(argc,argv)
  int argc;
  char **argv;
 {  /* begin main */
-	float   *sampbuf;        /* buffer for input samples        */
-	float   *outbuf;         /* frame of out coefs in mag or db [nchnls] */
+	float   *sampbuf;       /* buffer for input samples        */
+	float   *outbuf;        /* frame of out coefs in db [nchnls] */
+	float   **outbufs;	/* All the output frames */
 	int     srate = 0;
         double  *hanfilrd;
         double  onedws, twopidws, RES2pidws, alpha;
 	double	delta_f_over_f;
-	float	ppsec=PPSEC;	/* Output columns per second */
-        int     frmsz, nchnls;
-        int     hann = 1, frmcnt = 0;
+	float	ppsec=PPSEC;	/* Number of analyses per second */
+        int     frmsz;		/* Number of samples between output frames */
+	int	nchnls;		/* Number of output buckets in each frame */
+	int	nframes;	/* Total number of frames to output */
+        int     hann = 1;
         int     *windsiz;	/* [nchnls] */
         float   *windsizf;	/* [nchnls] */
         int     flag, windmaxi, sumwind=0;
@@ -52,7 +58,12 @@ main(argc,argv)
         float   windmax, minhz=MINHZ, maxhz=MAXHZ;
         register int    n, k, y;
         register double *hanfilrdp;
-	float  maxAmp=0.0, dynRange=(float)DYNRANGE;
+
+	/* Remember the maximum output value as we go so that we can
+	 * normalize the output to make the maximum output value white.
+	 */
+	float maxAmp = -1.0/0.0; /* -infinity */
+	float dynRange=(float)DYNRANGE;
 
 	/* Stuff for reading sound file */
 	char *fileNameIn;
@@ -61,9 +72,6 @@ main(argc,argv)
 
 	/* Stuff for writing PNG file */
 	char *fileNameOut;
-	png_structp png_ptr;
-	png_infop png_info;
-	png_uint_32 png_width, png_height;
 
         argc--; argv++;                         /* align onto command args */
         while ((cp = *argv) && *cp++ =='-' && (flag = *cp++))
@@ -141,14 +149,15 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	if (res == 0.0) res = 1.0 / (delta_f_over_f - 1.0);
 
         nchnls = (int)(log(maxhz/minhz)/log(delta_f_over_f)) + 1;
+	nframes = ppsec * sfinfo.frames / srate;
         windmax = (float)(res*srate)/minhz; /* res determines harmonic
                     number which is const=res; freq is varied with windsiz[k]
                     and equals  srate*res/windsiz[k] */
 
 	windsiz = calloc(nchnls, sizeof(*windsiz));
 	windsizf = calloc(nchnls, sizeof(*windsizf));
-	outbuf = calloc(nchnls, sizeof(*outbuf));
-	if (!windsiz || !windsizf || !outbuf)
+	outbufs = calloc(nframes, sizeof(*outbufs));
+	if (!windsiz || !windsizf || !outbufs)
 	    die("Not enough memory");
 
 	/* Calculate window size for each bucket */
@@ -185,46 +194,6 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	    }
 	}
 
-	/* Create PNG file for writing */
-	{
-	    FILE *png_fp = fopen(fileNameOut, "wb");
-
-	    if (!png_fp) {
-		fputs("Cannot create ", stderr);
-		perror(fileNameOut);
-		exit(1);
-	    }
-	    png_ptr = png_create_write_struct(
-		PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-	    if (!png_ptr) {
-		fputs("Cannot create PNG writer.\n", stderr);
-		exit(1);
-	    }
-	    png_info = png_create_info_struct(png_ptr);
-	    if (!png_info) {
-		fputs("Cannot create PNG info.\n", stderr);
-		exit(1);
-	    }
-	    if (setjmp(png_jmpbuf(png_ptr)))
-	    {
-		fputs("Something went wrong in the PNG-writing subsystem. Quitting...\n", stderr);
-		png_destroy_write_struct(&png_ptr, &png_info);
-		fclose(png_fp);
-		exit(1);
-	    }
-	    png_width = (png_uint_32) nchnls;
-	    png_height = ppsec * sfinfo.frames / srate;
-	    png_init_io(png_ptr, png_fp);
-	    png_set_IHDR(png_ptr, png_info,
-		png_width, png_height,
-		8, // bit depth
-		PNG_COLOR_TYPE_GRAY,
-		PNG_INTERLACE_NONE,
-		PNG_COMPRESSION_TYPE_DEFAULT,
-		PNG_FILTER_TYPE_DEFAULT);
-	    png_write_info(png_ptr, png_info);
-	}
-
 	/* The analysis is centred on the centre of the window, so to get an
 	 * analysis of the whole audio file, we start with half a window of
 	 * silence and half a window of audio */
@@ -235,24 +204,25 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
             memset(sampbuf+windmaxi/2+n, 0, windmaxi-windmaxi/2-n);
 	}
 
-	for (y=0; y < png_height; y++) {
+	for (y=0; y < nframes; y++) {
+	    outbufs[y] = outbuf = calloc(nchnls, sizeof(*outbuf));
+	    if (!outbuf)
+	        die("Not enough memory");
+
 	    hanfilrdp = hanfilrd;
 	    for (k=0; k<nchnls; k++) { /* for one frame: */
-	       double a = 0.0, b = 0.0, c;
-	       /* Center all buckets on the central sample of the window
-		* to avoid skewing the output */
-	       float *samp = sampbuf + (windmaxi - windsiz[k])/2;
-	       for (n=0; n<windsiz[k]; n++, samp++) { /*  calculate coefs  */
-		  a += *samp * *hanfilrdp++; /* sin */
-		  b += *samp * *hanfilrdp++; /* cos */
-	       }
-	       c = sqrt( a*a + b*b );
-	       outbuf[k] = 20. * log10(c);
-	    }                            /* end calc from table read in */
-
-	    output_frame(png_ptr, outbuf, png_width, maxAmp, -dynRange);
-
-	    ++frmcnt;
+	        double a = 0.0, b = 0.0, c;
+	        /* Center all buckets on the central sample of the window
+		 * to avoid skewing the output */
+	        float *samp = sampbuf + (windmaxi - windsiz[k])/2;
+	        for (n=0; n<windsiz[k]; n++, samp++) { /*  calculate coefs  */
+		    a += *samp * *hanfilrdp++; /* sin */
+		    b += *samp * *hanfilrdp++; /* cos */
+	        }
+	        c = sqrt( a*a + b*b );
+	        outbuf[k] = 20. * log10(c);
+		if (outbuf[k] > maxAmp) maxAmp = outbuf[k];
+	    }
 
 	    if ((n = windmaxi - frmsz) > 0) {  /* nxt: for step < windowsiz */
 		float *samp = sampbuf;
@@ -274,54 +244,82 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	    }
 	}
 
-	/* Finish writing the PNG file */
-	png_write_end(png_ptr, NULL);
-
-	show_min_max();
+	write_png(fileNameOut, outbufs, nframes, nchnls, maxAmp, dynRange);
 
 	exit(0);
 
 } /* end main */
 
-/* Accumulate the minimum and maximum output values so that
- * they can normalize the brghtness if they want */
-static float minval, maxval;
-static int initval=0;	/* Have we initialized minval and maxval? */
-
 static void
-show_min_max()
+write_png(fileNameOut, outbufs, nframes, nchnls, maxAmp, dynRange)
+char *fileNameOut;
+float **outbufs;
+int nframes, nchnls;
+float maxAmp, dynRange;
 {
-    printf("Minimum output value is %f\n", minval);
-    printf("Maximum output value is %f\n", maxval);
-}
+	/* Create PNG file for writing */
+	FILE *png_fp = fopen(fileNameOut, "wb");
+	png_structp png_ptr;
+	png_infop png_info;
+	png_uint_32 png_width, png_height;
 
-static void
-output_frame(png_structp png_ptr, float *outbuf, png_uint_32 png_width,
-	     float maxAmp, float dynRange)
-{
-    static png_bytep png_row = NULL;
-    unsigned i;
+	if (!png_fp) {
+	    fputs("Cannot create ", stderr);
+	    perror(fileNameOut);
+	    exit(1);
+	}
+	png_ptr = png_create_write_struct(
+	    PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+	if (!png_ptr) {
+	    fputs("Cannot create PNG writer.\n", stderr);
+	    exit(1);
+	}
+	png_info = png_create_info_struct(png_ptr);
+	if (!png_info) {
+	    fputs("Cannot create PNG info.\n", stderr);
+	    exit(1);
+	}
+	if (setjmp(png_jmpbuf(png_ptr)))
+	{
+	    fputs("Something went wrong in the PNG-writing subsystem. Quitting...\n", stderr);
+	    png_destroy_write_struct(&png_ptr, &png_info);
+	    fclose(png_fp);
+	    exit(1);
+	}
+	png_height = (png_uint_32) nchnls;
+	png_width = (png_uint_32) nframes;
+	png_init_io(png_ptr, png_fp);
+	png_set_IHDR(png_ptr, png_info,
+	    png_width, png_height,
+	    8, // bit depth
+	    PNG_COLOR_TYPE_GRAY,
+	    PNG_INTERLACE_NONE,
+	    PNG_COMPRESSION_TYPE_DEFAULT,
+	    PNG_FILTER_TYPE_DEFAULT);
+	png_write_info(png_ptr, png_info);
 
-    if (png_row == NULL) png_row = (png_bytep) malloc(png_width);
-    if (!png_row) die("Not enough memory");
+	/* Output is generated column-by-column, but PNG files need writing
+	 * row-by-row. Perform the rotation, normalizing the output as we go.
+	 */
+	{
+	    int y, x;
+            png_bytep png_row = malloc(nframes);
+            if (!png_row) die("Not enough memory");
 
-    if (!initval) {
-	minval = maxval = outbuf[0];
-	initval = 1;
-    }
+	    for (y=png_height-1; y>=0; y--) {
+		for (x=0; x<png_width; x++) {
+		    float value = (maxAmp - outbufs[x][y]) / dynRange;
+		    if (value < 0.0) { value = 0.0; }
+		    if (value > 1.0) { value = 1.0; }
+		    png_row[x] = ((1.0-value) * 255) + 0.5;
+		}
+		png_write_row(png_ptr, png_row);
+	    }
 
-    /* Convert floats to 0-255 */
-    for (i = 0; i < png_width; i++ ) {
-        double value = outbuf[i];
-	if (value < minval) minval=value;
-        if (value > maxval) maxval=value;
-	value -= maxAmp;
-	value /= dynRange; /* values are <=0 and dynRange is negative */
-        if (value < 0.0) { value = 0.0; }
-        if (value > 1.0) { value = 1.0; }
-        png_row[i] = ((1.0-value) * 255) + 0.5;
-    }
-    png_write_row(png_ptr, png_row);
+	    free(png_row);
+	}
+
+	png_write_end(png_ptr, NULL);
 }
 
 die(s)
