@@ -10,8 +10,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include <fcntl.h> /* defines O_RDONLY */
-#include "./frmhdr.h"
 
 #include "sndfile.h"
 #include "png.h"
@@ -20,7 +18,7 @@
 #define PPSEC 88.2     /* Number of analyses (hence output pixels) per second */
 #define MINHZ 130.80 /* c3 midi = 48 */
 #define MAXHZ 11442.0
-#define PPSEMI 2
+#define PPSEMI 2	/* Output pixels per semitone */
 #define DYNRANGE 100
 
 #define PI  M_PI
