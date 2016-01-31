@@ -51,7 +51,7 @@ main(argc,argv)
 	int	ppsemi=PPSEMI;	/* Number of buckets per semitone */
         int     hamming = 1;
         char    *cp;
-        float   windmax, minhz=MINHZ, maxhz=MAXHZ, tuncorrec=1.00;
+        float   windmax, minhz=MINHZ, maxhz=MAXHZ;
         register int    n, k, y;
         register double *hanfilrdp;
 	float  maxAmp=0.0, dynRange=(float)DYNRANGE;
@@ -79,15 +79,13 @@ main(argc,argv)
 			break;
 		case 'x': sscanf(cp, "%f", &maxhz);
 			break;
-		case 'P': sscanf(cp,"%d", &ppsemi);/* pixels per semitone */
+		case 'p': sscanf(cp, "%d", &ppsemi);
 			break;
-		case 's': sscanf(cp, "%f", &ppsec);/* pixels per second */
+		case 's': sscanf(cp, "%f", &ppsec);
 			break;
-		case 'A': sscanf(cp, "%f", &maxAmp);	/* value to display as white */
+		case 'A': sscanf(cp, "%f", &maxAmp);/* value to display as white */
 			break;
 		case 'D': sscanf(cp, "%f", &dynRange);	/* maxAmp-dynRange displays as black */
-			break;
-		case 'T': sscanf(cp, "%f", &tuncorrec);
 			break;
 		case 'S': sscanf(cp, "%i", &srate);
 			break;
@@ -100,10 +98,8 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 -H1           Use Hamming window instead of Hann\n\
 -fMINHZ       Lowest frequency value (%g Hz)\n\
 -xMAXHZ       Highest frequency value (%g Hz)\n\
--PPPSEMI      Number of frequency values per semitone (%d)\n\
+-pPPSEMI      Number of frequency values per semitone (%d)\n\
 -sPPSEC       Number of output columns per second (%g)\n\
--TTUNCORREC   Follow with tuning correction for sounds digitized at\n\
-              ems(1.04) implemented 7/20/88\n\
 -SSRATE       Sample rate (default: auto-detected)\n\
 -AmaxAmp(0)   Output value to display as white (negative values brighten output)\n\
 -DdynRange(%d) Dynamic range of output.\n\
@@ -157,7 +153,6 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	if (!windsiz || !windsizf || !outbuf)
 	    die("Not enough memory");
 
-        minhz /= tuncorrec;
 	/* Calculate window size for each bucket */
 	for (k=0; k < nchnls; ++k) {
            windsizf[k] = (float)windmax/pow(delta_f_over_f,(double)k);
