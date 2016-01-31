@@ -16,12 +16,14 @@
 #include "sndfile.h"
 #include "png.h"
 
+/* Default values for parameters */
 #define FRMSZ 500
 /*#define MINHZ 174.6  /* F3 = 7.05  midi=53 */
 #define MINHZ 130.80 /* c3 midi = 48 */
-/*#define MAXHZ 1600  */
-#define RES 34 /* f/deltaf = 1/.06 */
-#define NCHNLS 156
+#define MAXHZ 11442.0
+#define PPSEMI 2
+// #define RES 34 /* f/deltaf = 1/.06 */
+// #define NCHNLS 156
 #define DYNRANGE 100
 
 #define PI  M_PI
@@ -41,18 +43,18 @@ main(argc,argv)
 	int     srate = 0;
 	float   midtuncor=1.;
         double  *hanfilrd;
-        double  one06, one03;
         double  onedws, twopidws, RES2pidws, alpha;
-        int     frmsz = FRMSZ, nchnls=NCHNLS;
+	double	delta_f_over_f;
+        int     frmsz = FRMSZ, nchnls;
         int     hann = 1, frmcnt = 0;
         int     *windsiz;	/* [nchnls] */
         float   *windsizf;	/* [nchnls] */
-        int     flag, windmaxi, sumwind=0, res = RES;
-        int     halfsemi=1;
-        int     maxreq=0;
-        int     hamming = 1, windsiz_1 = 0;
+        int     flag, windmaxi, sumwind=0;
+	float	res = 0.;	/* f/deltaf = 1/.06 */
+	int	ppsemi=PPSEMI;	/* Number of buckets per semitone */
+        int     hamming = 1;
         char    *cp;
-        float   windmax, minhz=MINHZ, tuncorrec=1.00;
+        float   windmax, minhz=MINHZ, maxhz=MAXHZ, tuncorrec=1.00;
         register int    n, k;
         register double *hanfilrdp;
 	float  maxAmp=0.0, dynRange=(float)DYNRANGE;
@@ -80,19 +82,11 @@ main(argc,argv)
 			break;
 		case 'F': sscanf(cp, "%d", &frmsz);
 			break;
-		case 'r': sscanf(cp, "%d", &res);/* resolution f/delf*/
-			break;
-		case 'p':sscanf(cp,"%d", &nchnls);/*num points in ft*/
-			break;
-		case 'a': sscanf(cp, "%d", &halfsemi);
+		case 'P':sscanf(cp,"%d", &ppsemi);/* pixels per semitone */
 			break;
 		case 'A': sscanf(cp, "%f", &maxAmp);	/* value to display as white (usually negative) */
 			break;
 		case 'D': sscanf(cp, "%f", &dynRange);	/* maxAmp-dynRange displays as black */
-			break;
-		case 'W':  sscanf(cp, "%d", &windsiz_1);
-			break;
-		case 'M': sscanf(cp, "%d", &maxreq);
 			break;
 		case 'T': sscanf(cp, "%f", &tuncorrec);
 			break;
@@ -107,18 +101,16 @@ usage:
 fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 -h0           Use rectangular window instead of Hann/Hamming\n\
 -H1           Use Hamming window instead of Hann\n\
--rRES(17)     Resolution f/deltaf.\n\
 -FFRMSZ(500)  Number of samples analyzed per frame.\n\
--pNCHNLS(156) Number of frequencies for which logft calculated per frame\n\
--fMINHZ(174.6)Lowest frequency value = 7.05 = F3 = midi 53\n\
--aHALFSEMI(1) Calculate with 2 frequency values per semitone.\n\
+-fMINHZ       Lowest frequency value (%g Hz)\n\
+-xMAXHZ       Highest frequency value (%g Hz)\n\
+-PPPSEMI      Number of frequency values per semitone (%d)\n\
 -TTUNCORREC   Follow with tuning correction for sounds digitized at\n\
               ems(1.04) implemented 7/20/88\n\
--WWINDSIZ-1(0)Use windsiz - 1 in hann(mming) window\n\
 -SSRATE       Sample rate (default: auto-detected)\n\
 -AmaxAmp(0)   Output value to display as white (negative values brighten output)\n\
 -DdynRange(%d) Dynamic range of output.\n\
-", DYNRANGE);
+", MINHZ, MAXHZ, PPSEMI, DYNRANGE);
 			exit(1);
 			break;
                 }
@@ -129,25 +121,10 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	fileNameIn  = argv[0];
 	fileNameOut = argv[1];
 
-	if (!hann)
-            fprintf(stderr,"Using rectangular window\n");
-	else {
-            if(hamming) {
-                alpha=(double)25./(double)46.;
-                fprintf(stderr,"Using Hamming window\n");
-            } else {
-	        alpha = (double).5; /* hann */
-                fprintf(stderr,"Using Hann window\n");
-	    }
+	if (hann) {
+            if(hamming) alpha=(double)25./(double)46.;
+            else alpha = (double).5; /* hann */
 	}
-
-	windsiz = calloc(nchnls, sizeof(*windsiz));
-	windsizf = calloc(nchnls, sizeof(*windsizf));
-	outbuf = calloc(nchnls, sizeof(*outbuf));
-	if (!windsiz || !windsizf || !outbuf)
-	    die("Not enough memory");
-
-        minhz /= tuncorrec;
 
 	/* Open sound file for reading */
 	{
@@ -167,21 +144,24 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 
 	/* Prepare the calculation subsystem */
 
-        one06 = pow(2.,1./12.);
-        one03 = pow(2.,1./24.); /* for stepping by 1/2 semitone */
-                                     /* freqrat = (float)MAXHZ /minhz; */
-                                /*nchnls = (int)(log(freqrat)/log(one06)) + 1*/
+	delta_f_over_f = pow(2.,1./(12.*ppsemi));
+	if (res == 0.0) res = 1.0 / (delta_f_over_f - 1.0);
+
+        nchnls = (int)(log(maxhz/minhz)/log(delta_f_over_f)) + 1;
         windmax = (float)(res*srate)/minhz; /* res determines harmonic
                     number which is const=res; freq is varied with windsiz[k]
                     and equals  srate*res/windsiz[k] */
 
+	windsiz = calloc(nchnls, sizeof(*windsiz));
+	windsizf = calloc(nchnls, sizeof(*windsizf));
+	outbuf = calloc(nchnls, sizeof(*outbuf));
+	if (!windsiz || !windsizf || !outbuf)
+	    die("Not enough memory");
+
+        minhz /= tuncorrec;
 	/* Calculate window size for each bucket */
 	for (k=0; k < nchnls; ++k) {
-           if(halfsemi==1){  /* 2 chnls per semitone */
-             windsizf[k] = (float)windmax/pow(one03,(float)k);
-           } else {
-             windsizf[k] = (float)windmax/pow(one06,(float)k);
-           }
+           windsizf[k] = (float)windmax/pow(delta_f_over_f,(double)k);
            windsiz[k] = (int)windsizf[k];
            sumwind += windsiz[k];        /* total window space needed
                                          for sin tables = sum of all windows */
@@ -201,8 +181,7 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	/* Calculate window (or rect) values */
 	hanfilrdp = hanfilrd;
 	for (k=0; k < nchnls; ++k){
-	    if(windsiz_1)twopidws = TWOPI/(windsiz[k] - 1);
-	    else twopidws = TWOPI/(windsiz[k]);
+	    twopidws = TWOPI/(windsiz[k]);
 	    RES2pidws = res* TWOPI/windsiz[k];
 	    onedws = 1./windsiz[k];
 
@@ -304,6 +283,8 @@ frame:
 
 } /* end main */
 
+/* Accumulate the minimum and maximum output values so that
+ * they can normalize the brghtness if they want */
 static float minval, maxval;
 static int initval=0;	/* Have we initialized minval and maxval? */
 
