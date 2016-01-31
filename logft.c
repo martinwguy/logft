@@ -1,10 +1,10 @@
 /* LOGFT.C
- * Takes as infile a soundfile using libsndfile *
- * adaptation of dft.c using log channels separated by
- * a semitone with resolution of a semitone
- * later modified; two chnls/semitone with variable resolution
- * calculates discrete Fourier transform of sound samples
- * and writes a PNG file to the named output file.
+ * Reads a soundfile writes a log-frequncy-axis spectrogram.
+ *
+ * Usage: logft [options] infile.wav outfile.png
+ *
+ * Adapted by Martin Guy <martinwguy@gmail.com> in January 2016 from
+ * Judith Brown's original C code from 1988-90.
  */
 
 #include <stdlib.h>
