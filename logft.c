@@ -17,13 +17,10 @@
 #include "png.h"
 
 /* Default values for parameters */
-#define FRMSZ 500
-/*#define MINHZ 174.6  /* F3 = 7.05  midi=53 */
+#define PPSEC 88.2     /* Number of analyses (hence output pixels) per second */
 #define MINHZ 130.80 /* c3 midi = 48 */
 #define MAXHZ 11442.0
 #define PPSEMI 2
-// #define RES 34 /* f/deltaf = 1/.06 */
-// #define NCHNLS 156
 #define DYNRANGE 100
 
 #define PI  M_PI
@@ -41,11 +38,11 @@ main(argc,argv)
 	float   *sampbuf;        /* buffer for input samples        */
 	float   *outbuf;         /* frame of out coefs in mag or db [nchnls] */
 	int     srate = 0;
-	float   midtuncor=1.;
         double  *hanfilrd;
         double  onedws, twopidws, RES2pidws, alpha;
 	double	delta_f_over_f;
-        int     frmsz = FRMSZ, nchnls;
+	float	ppsec=PPSEC;	/* Output columns per second */
+        int     frmsz, nchnls;
         int     hann = 1, frmcnt = 0;
         int     *windsiz;	/* [nchnls] */
         float   *windsizf;	/* [nchnls] */
@@ -80,19 +77,19 @@ main(argc,argv)
 			break;
 		case 'f': sscanf(cp, "%f", &minhz);
 			break;
-		case 'F': sscanf(cp, "%d", &frmsz);
+		case 'x': sscanf(cp, "%f", &maxhz);
 			break;
-		case 'P':sscanf(cp,"%d", &ppsemi);/* pixels per semitone */
+		case 'P': sscanf(cp,"%d", &ppsemi);/* pixels per semitone */
 			break;
-		case 'A': sscanf(cp, "%f", &maxAmp);	/* value to display as white (usually negative) */
+		case 's': sscanf(cp, "%f", &ppsec);/* pixels per second */
+			break;
+		case 'A': sscanf(cp, "%f", &maxAmp);	/* value to display as white */
 			break;
 		case 'D': sscanf(cp, "%f", &dynRange);	/* maxAmp-dynRange displays as black */
 			break;
 		case 'T': sscanf(cp, "%f", &tuncorrec);
 			break;
 		case 'S': sscanf(cp, "%i", &srate);
-			break;
-		case 'Q': sscanf(cp, "%f", &midtuncor);
 			break;
 
 		default: fprintf(stderr, "unknown option \"%c\"\n", flag);
@@ -101,16 +98,16 @@ usage:
 fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 -h0           Use rectangular window instead of Hann/Hamming\n\
 -H1           Use Hamming window instead of Hann\n\
--FFRMSZ(500)  Number of samples analyzed per frame.\n\
 -fMINHZ       Lowest frequency value (%g Hz)\n\
 -xMAXHZ       Highest frequency value (%g Hz)\n\
 -PPPSEMI      Number of frequency values per semitone (%d)\n\
+-sPPSEC       Number of output columns per second (%g)\n\
 -TTUNCORREC   Follow with tuning correction for sounds digitized at\n\
               ems(1.04) implemented 7/20/88\n\
 -SSRATE       Sample rate (default: auto-detected)\n\
 -AmaxAmp(0)   Output value to display as white (negative values brighten output)\n\
 -DdynRange(%d) Dynamic range of output.\n\
-", MINHZ, MAXHZ, PPSEMI, DYNRANGE);
+", MINHZ, MAXHZ, PPSEMI, PPSEC, DYNRANGE);
 			exit(1);
 			break;
                 }
@@ -143,6 +140,8 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	}
 
 	/* Prepare the calculation subsystem */
+
+	frmsz = (int)(srate / ppsec + 0.5);
 
 	delta_f_over_f = pow(2.,1./(12.*ppsemi));
 	if (res == 0.0) res = 1.0 / (delta_f_over_f - 1.0);
