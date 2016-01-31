@@ -52,7 +52,7 @@ main(argc,argv)
         int     hamming = 1;
         char    *cp;
         float   windmax, minhz=MINHZ, maxhz=MAXHZ, tuncorrec=1.00;
-        register int    n, k;
+        register int    n, k, y;
         register double *hanfilrdp;
 	float  maxAmp=0.0, dynRange=(float)DYNRANGE;
 
@@ -65,7 +65,7 @@ main(argc,argv)
 	char *fileNameOut;
 	png_structp png_ptr;
 	png_infop png_info;
-	png_uint_32 png_width;
+	png_uint_32 png_width, png_height;
 
         argc--; argv++;                         /* align onto command args */
         while ((cp = *argv) && *cp++ =='-' && (flag = *cp++))
@@ -192,15 +192,9 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	    }
 	}
 
-	/* Read a full window of samples from the audio file */
-	n = sf_readf_float(sndfile, sampbuf, windmaxi);
-        if (n != windmaxi)
-              die("premature end of infile");
-
 	/* Create PNG file for writing */
 	{
 	    FILE *png_fp = fopen(fileNameOut, "wb");
-	    png_uint_32 png_height;
 
 	    if (!png_fp) {
 		fputs("Cannot create ", stderr);
@@ -226,7 +220,7 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 		exit(1);
 	    }
 	    png_width = (png_uint_32) nchnls;
-	    png_height = ((sfinfo.frames - windmaxi) / frmsz) + 1;
+	    png_height = ppsec * sfinfo.frames / srate;
 	    png_init_io(png_ptr, png_fp);
 	    png_set_IHDR(png_ptr, png_info,
 		png_width, png_height,
@@ -238,40 +232,54 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	    png_write_info(png_ptr, png_info);
 	}
 
-frame:
-	hanfilrdp = hanfilrd;
-	for (k=0; k<nchnls; k++) { /* for one frame: */
-	   double a = 0.0, b = 0.0, c;
-	   /* Center all buckets on the central sample of the window */
-	   float *samp = sampbuf + (windmaxi - windsiz[k])/2;
-	   for (n=0; n<windsiz[k]; n++) { /*  calculate coefs  */
-	      a += *samp * *hanfilrdp++;
-	      b += *samp++ * *hanfilrdp++; /*wrote sin then cos*/
-	   }
-	   c = sqrt( a*a + b*b );
-	   outbuf[k] = 20. * log10(c);
-	}                            /* end calc from table read in */
+	/* The analysis is centred on the centre of the window, so to get an
+	 * analysis of the whole audio file, we start with half a window of
+	 * silence and half a window of audio */
+	memset(sampbuf, 0, windmaxi/2);
+	n = sf_readf_float(sndfile, sampbuf+windmaxi/2, windmaxi-windmaxi/2);
+        if (n < windmaxi-windmaxi/2) {
+	    /* Fill the remaining space with silence */
+            memset(sampbuf+windmaxi/2+n, 0, windmaxi-windmaxi/2-n);
+	}
 
-	output_frame(png_ptr, outbuf, png_width, maxAmp, -dynRange);
+	for (y=0; y < png_height; y++) {
+	    hanfilrdp = hanfilrd;
+	    for (k=0; k<nchnls; k++) { /* for one frame: */
+	       double a = 0.0, b = 0.0, c;
+	       /* Center all buckets on the central sample of the window
+		* to avoid skewing the output */
+	       float *samp = sampbuf + (windmaxi - windsiz[k])/2;
+	       for (n=0; n<windsiz[k]; n++, samp++) { /*  calculate coefs  */
+		  a += *samp * *hanfilrdp++; /* sin */
+		  b += *samp * *hanfilrdp++; /* cos */
+	       }
+	       c = sqrt( a*a + b*b );
+	       outbuf[k] = 20. * log10(c);
+	    }                            /* end calc from table read in */
 
-        ++frmcnt;
+	    output_frame(png_ptr, outbuf, png_width, maxAmp, -dynRange);
 
-        if ((n = windmaxi - frmsz) > 0) {       /* nxt: for step < windowsiz */
-                float *samp = sampbuf;
-                float *samp2 = sampbuf + frmsz;
-                while (n--)
-                        *samp++ = *samp2++;     /*      slide the sample buf */
-                n = sf_readf_float(sndfile, samp, frmsz);  /*     & refill to windmaxi  */
-                if (n == frmsz) goto frame;
-        } else {
-		                                /* else waste any extra samps */
-                for (n = -n; n>=windmaxi; n-=windmaxi)
-                        sf_readf_float(sndfile, sampbuf, windmaxi);
-                if (n)  sf_readf_float(sndfile, sampbuf, n);
-		                                /* then rd whole new window */
-                n = sf_readf_float(sndfile, sampbuf, windmaxi);
-                if (n == windmaxi) goto frame;  /* & go calc new frame */
-        }
+	    ++frmcnt;
+
+	    if ((n = windmaxi - frmsz) > 0) {  /* nxt: for step < windowsiz */
+		float *samp = sampbuf;
+		float *samp2 = sampbuf + frmsz;
+		while (n--)
+			*samp++ = *samp2++;    /* slide the sample buf */
+		n = sf_readf_float(sndfile, samp, frmsz);  /* & refill to windmaxi  */
+		/* At EOF, fill with silence */
+		if (n < frmsz) memset(samp+n, 0, frmsz-n);
+	    } else {
+						/* else waste any extra samps */
+		for (n = -n; n>=windmaxi; n-=windmaxi)
+			sf_readf_float(sndfile, sampbuf, windmaxi);
+		if (n)  sf_readf_float(sndfile, sampbuf, n);
+						/* then rd whole new window */
+		n = sf_readf_float(sndfile, sampbuf, windmaxi);
+		/* At EOF, fill with silence */
+		if (n < windmaxi) memset(sampbuf+n, 0, windmaxi-n);
+	    }
+	}
 
 	/* Finish writing the PNG file */
 	png_write_end(png_ptr, NULL);
