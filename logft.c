@@ -24,11 +24,8 @@
 #define NCHNLS 156
 #define DYNRANGE 100
 
-#define TWOPI  6.2831854
-#define PI  3.1415927
-#define PMODE 0644
-#define MINLAM 4                       /* at 10k 6  */
-#define MAXLAM 250  /* for c3 ; was 195                      /* at 10k 75 */
+#define PI  M_PI
+#define TWOPI  (2.0 * PI)
 
 /* Forward function declarations */
 static void output_frame(png_structp png_ptr, float *outbuf,
@@ -178,7 +175,7 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
                     number which is const=res; freq is varied with windsiz[k]
                     and equals  srate*res/windsiz[k] */
 
-fputs("Window sizes:", stderr);
+	/* Calculate window size for each bucket */
 	for (k=0; k < nchnls; ++k) {
            if(halfsemi==1){  /* 2 chnls per semitone */
              windsizf[k] = (float)windmax/pow(one03,(float)k);
@@ -188,9 +185,7 @@ fputs("Window sizes:", stderr);
            windsiz[k] = (int)windsizf[k];
            sumwind += windsiz[k];        /* total window space needed
                                          for sin tables = sum of all windows */
-fprintf(stderr, " %d", windsiz[k]);
         }
-fprintf(stderr, "\n");
 
 	/* Allocate memory for sin/cos pairs */
         hanfilrd = (double *)malloc(2*sumwind*sizeof(double));
@@ -269,7 +264,8 @@ frame:
 	hanfilrdp = hanfilrd;
 	for (k=0; k<nchnls; k++) { /* for one frame: */
 	   double a = 0.0, b = 0.0, c;
-	   float *samp = sampbuf;
+	   /* Center all buckets on the central sample of the window */
+	   float *samp = sampbuf + (windmaxi - windsiz[k])/2;
 	   for (n=0; n<windsiz[k]; n++) { /*  calculate coefs  */
 	      a += *samp * *hanfilrdp++;
 	      b += *samp++ * *hanfilrdp++; /*wrote sin then cos*/
