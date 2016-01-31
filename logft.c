@@ -1,12 +1,11 @@
 /* LOGFT.C
- * Takes as infile a soundfile of shorts (16 bit ints);
+ * Takes as infile a soundfile using libsndfile
  *
  * adaptation of dft.c using log channels separated by
  * a semitone with resolution of a semitone
  * later modified; two chnls/semitone with variable resolution
- * calculates discrete Fourier transform of binary short sound samples
- * (from stdin) and writes binary float coefficients (mag or db) to stdout.
- *
+ * calculates discrete Fourier transform of sound samples
+ * and writes a PNG file to the named output file.
  */
 
 #include <stdlib.h>
@@ -19,7 +18,6 @@
 #include "png.h"
 
 #define FRMSZ 500
-#define WINDMAX 20000
 /*#define MINHZ 174.6  /* F3 = 7.05  midi=53 */
 #define MINHZ 130.80 /* c3 midi = 48 */
 /*#define MAXHZ 1600  */
@@ -42,7 +40,7 @@ main(argc,argv)
  int argc;
  char **argv;
 {  /* begin main */
-static float   sampbuf[WINDMAX];               /* buffer for input samples        */
+	float   *sampbuf;        /* buffer for input samples        */
 	float   *outbuf;         /* frame of out coefs in mag or db [nchnls] */
 	int     srate = 0;
 	float   midtuncor=1.;
@@ -58,7 +56,7 @@ static float   sampbuf[WINDMAX];               /* buffer for input samples      
         int     maxreq=0;
         int     hamming = 1, windsiz_1 = 0;
         char    *cp;
-        float   windmax, minhz= MINHZ, tuncorrec=1.00;
+        float   windmax, minhz=MINHZ, tuncorrec=1.00;
         register int    n, k;
         register float  *samp, *samp2;
         register double *hanp, *hanfilrdp;
@@ -172,22 +170,6 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 	    if (srate == 0) srate = sfinfo.samplerate;
 	}
 
-#if 0
-        if (writehdr){
-           fprintf(stderr, "Writing a header on outfile\n");
-           hdr.frm_magic = FRM_MAGIC;
-           hdr.frm_width = nchnls;
-           hdr.frm_datatype = FRM_DATA_FLOAT;
-           hdr.frm_scale = FRM_SCALE_LOG;
-           hdr.frm_frm_size = frmsz;
-           hdr.frm_sr = srate;
-           hdr.frm_frm_p_s = srate/frmsz;
-           hdr.frm_minfreq = minhz;
-           if((nw = write(1, &hdr, sizeof hdr)) != sizeof hdr)
-	     die("Error writing file header");
-        }
-#endif
-
 	/* Prepare the calculation subsystem */
 
         one06 = pow(2.,1./12.);
@@ -199,18 +181,20 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
                     and equals  srate*res/windsiz[k] */
 
         k=nchnls;       n=0;
+fputs("Window sizes:", stderr);
         while (k--){
            if(halfsemi==1){  /* 2 chnls per semitone */
              windsizf[n] = (float)windmax/pow(one03,(float)n);
-           }
-           else{
+           } else {
              windsizf[n] = (float)windmax/pow(one06,(float)n);
            }
            windsiz[n] = (int)windsizf[n];
            sumwind += windsiz[n];        /* total window space needed
                                          for sin tables = sum of all windows */
+fprintf(stderr, " %d", windsiz[n]);
            ++n;
         }
+fprintf(stderr, "\n");
 
         hanfilrd = (double *)malloc(2*sumwind*sizeof(double));
         if (hanfilrd == NULL)
@@ -218,7 +202,9 @@ fprintf(stderr, "usage: logft [options] infile.wav outfile.png\n\
 		
 	windmaxi = (int)windmax;     /* no of samples to read in is the size
 					of the largest window (lowest freq*/
-	if(windmaxi > WINDMAX)die("Windmaxi larger than WINDMAX");
+
+	sampbuf = calloc(windmaxi, sizeof(*sampbuf));
+	if (!sampbuf) die("Not enough memory");
 
 	/* Calculate window (or rect) values */
 	hanp = hanfilrd;
