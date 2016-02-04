@@ -1,7 +1,5 @@
 /* LOGFT.C
- * Reads a soundfile writes a log-frequncy-axis spectrogram.
- * The output file needs rotating anticlockwise by 90 degrees
- * to be the right way up.
+ * Reads a soundfile writes a log-frequency-axis spectrogram.
  *
  * Usage: logft [options] infile.wav outfile.png
  *
@@ -17,9 +15,9 @@
 #include "png.h"
 
 /* Default values for parameters */
-#define PPSEC 88.2     /* Number of analyses (hence output pixels) per second */
-#define MINHZ 130.80 /* c3 midi = 48 */
-#define MAXHZ 11442.0
+#define PPSEC 50.0     /* Number of analyses (hence output pixels) per second */
+#define MINHZ 27.5
+#define MAXHZ 14080.0
 #define PPSEMI 2	/* Output pixels per semitone */
 #define DYNRANGE 100
 
